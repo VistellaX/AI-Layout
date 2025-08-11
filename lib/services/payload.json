@@ -1,0 +1,35 @@
+[
+  {
+    "action": "update_title",
+    "value": "New JSON Title"
+  },
+  {
+    "action": "update_background_color",
+    "value": "green"
+  },
+  {
+    "action": "add_component",
+    "component": {
+      "type": "button",
+      "text": "JSON Button",
+      "color": "blue"
+    }
+  },
+  {
+    "action": "update_component_text",
+    "index": 0,
+    "text": "Updated Component Text"
+  },
+  {
+    "action": "update_component_color",
+    "index": 0,
+    "color": "blue"
+  },
+  {
+    "action": "remove_component",
+    "index": 1
+  },
+  {
+    "action": "clear_components"
+  }
+]

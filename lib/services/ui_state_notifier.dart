@@ -1,20 +1,219 @@
 import 'ui_state.dart';
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'gemini_service.dart';
+
+class ColorUtils {
+  static Color getColorFromString(String colorString) {
+    String lowerColorString = colorString.toLowerCase().trim();
+    switch (lowerColorString) {
+      case 'red':
+        return Colors.red;
+      case 'green':
+        return Colors.green;
+      case 'blue':
+        return Colors.blue;
+      case 'yellow':
+        return Colors.yellow;
+      case 'orange':
+        return Colors.orange;
+      case 'purple':
+        return Colors.purple;
+      case 'pink':
+        return Colors.pink;
+      case 'black':
+        return Colors.black;
+      case 'white':
+        return Colors.white;
+      case 'grey':
+      case 'gray':
+        return Colors.grey;
+      default:
+        if (lowerColorString.startsWith('#') && (lowerColorString.length == 7 || lowerColorString.length == 9)) {
+          try {
+            String hexColor = lowerColorString.substring(1); // Remove #
+            if (hexColor.length == 6) {
+              hexColor = "FF" + hexColor; // Add alpha if missing
+            }
+            if (hexColor.length == 8) {
+              return Color(int.parse(hexColor, radix: 16));
+            }
+          } catch (e) {
+            return Colors.grey; // Cor padrão em caso de erro de parsing
+          }
+        }
+        return Colors.grey; // Cor padrão para nomes não reconhecidos
+    }
+  }
+}
 
 class UiStateNotifier extends ChangeNotifier {
   UiState _uiState = UiState(
-    title: 'Título Inicial',
-    backgroundColor: Colors.grey,
+    title: 'AI Layout',
+    backgroundColor: Colors.black,
     componentProperties: [
-      ComponentProperty(type: 'text', text: 'Componente Inicial 1'),
+      ComponentProperty(type: 'text', text: 'Hi, you may change this layout with AI. Write commands to change this text, title, background color and add buttons.', color: Colors.white),
     ],
+    isLoading: false,
+    errorMessage: null,
   );
 
   UiState get uiState => _uiState;
   late UiState _initialState; // Para o reset
 
+  final GeminiService _geminiService = GeminiService();
+
   UiStateNotifier() {
-    _initialState = _uiState.copyWith(); // Salva o estado inicial
+    _initialState = _uiState.copyWith(isLoading: false, errorMessage: null); // Salva o estado inicial
+  }
+
+  Future<void> processPrompt(String prompt) async {
+    if (prompt.trim().isEmpty) {
+      _uiState = _uiState.copyWith(errorMessage: "Please, write a command.");
+      notifyListeners();
+      return;
+    }
+
+    // Updates the state to indicate loading and clear previous errors
+    _uiState = _uiState.copyWith(isLoading: true, errorMessage: null);
+    notifyListeners();
+
+    try {
+      final String jsonStringFromGemini = await _geminiService.getJsonPayloadFromPrompt(prompt);
+
+      if (jsonStringFromGemini.isNotEmpty) {
+        if (jsonStringFromGemini == "[]") {
+           _uiState = _uiState.copyWith(isLoading: false, errorMessage: "I don't understand what you mean. Try another way.");
+           notifyListeners();
+           return;
+        }
+        processJsonPayload(jsonStringFromGemini);
+      } else {
+        // Caso o GeminiService retorne uma string vazia por algum motivo inesperado
+        _uiState = _uiState.copyWith(isLoading: false, errorMessage: "Received empty payload from assistant.");
+        notifyListeners();
+        return;
+      }
+      _uiState = _uiState.copyWith(isLoading: false); // Carregamento concluído com sucesso
+      // notifyListeners(); // processJsonPayload ou seus métodos internos já chamam notifyListeners
+
+    } catch (e) {
+      print("Error processing prompt with Gemini: $e");
+      _uiState = _uiState.copyWith(isLoading: false, errorMessage: "Error communicating with assistant: ${e.toString()}");
+      notifyListeners();
+    }
+  }
+
+  void processJsonPayload(String jsonString) {
+    if (jsonString.trim().isEmpty || jsonString.trim() == "[]") {
+      _uiState = _uiState.copyWith(errorMessage: "The assistant was unable to interpret the command.");
+      notifyListeners(); // Certifique-se de notificar se o estado for alterado
+      return;
+    }
+    try {
+      final dynamic decodedJson = jsonDecode(jsonString);
+
+      if (decodedJson is List) {
+        if (decodedJson.isEmpty) {
+          _uiState = _uiState.copyWith(errorMessage: "The assistant was unable to interpret the command.");
+          notifyListeners();
+          return;
+        }
+        for (var instruction in decodedJson) {
+          if (instruction is Map<String, dynamic>) {
+            _applyInstruction(instruction);
+          } else {
+            print("invalid json list instruction: $instruction");
+          }
+        }
+      } else if (decodedJson is Map<String, dynamic>) {
+        _applyInstruction(decodedJson);
+      } else {
+        _uiState = _uiState.copyWith(errorMessage: "Unexpected response format from wizard.");
+      }
+    } catch (e, s) {
+      print("Error decoding or processing JSON: $e");
+      print("Stack trace: $s");
+      _uiState = _uiState.copyWith(errorMessage: "Error processing wizard response.");
+    }
+    // notifyListeners();
+}
+
+  void _applyInstruction(Map<String, dynamic> instruction) {
+    final String? action = instruction['action'] as String?;
+
+    switch (action) {
+      case 'update_title':
+        final String? newTitle = instruction['value'] as String?;
+        if (newTitle != null) updateTitle(newTitle);
+        break;
+
+      case 'update_background_color':
+        final String? colorString = instruction['value'] as String?;
+        if (colorString != null) updateBackgroundColor(ColorUtils.getColorFromString(colorString));
+        break;
+
+      case 'add_component':
+        final Map<String, dynamic>? componentData = instruction['component'] as Map<String, dynamic>?;
+        if (componentData != null) {
+          final String? type = componentData['type'] as String?;
+          final String? text = componentData['text'] as String?;
+          final String? colorString = componentData['color'] as String?;
+
+          if (type != null && text != null) {
+            addComponent(ComponentProperty(
+              type: type,
+              text: text,
+              color: colorString != null ? ColorUtils.getColorFromString(colorString) : null,
+            ));
+          } else {
+            print("Invalid component data for 'add_component'': type ou text ausente.");
+          }
+        } else {
+          print("Missing component data for 'add_component''.");
+        }
+        break;
+
+      case 'update_component_text':
+        final int? index = instruction['index'] as int?;
+        final String? newText = instruction['text'] as String?;
+        if (index != null && newText != null) {
+          updateComponentText(index, newText);
+        } else {
+          print("Missing index or new text for 'update_component_text''.");
+        }
+        break;
+
+    // Dentro de _applyInstruction no UiStateNotifier
+      case 'update_component_color':
+        final int? index = instruction['index'] as int?;
+        final String? colorString = instruction['color'] as String?;
+        if (index != null && colorString != null) {
+          // Converte a string da cor para um objeto Color
+          final Color newColor = ColorUtils.getColorFromString(colorString);
+          updateComponentColor(index, newColor); // Chama a função que discutimos
+        } else {
+          print("Missing color index or string for 'update_component_color'.");
+          // stateChanged = false; // Se você estiver rastreando isso
+        }
+        break;
+
+      case 'remove_component':
+        final int? index = instruction['index'] as int?;
+        if (index != null) {
+          removeComponentAtIndex(index);
+        } else {
+          print("Missing index for 'remove_component'.");
+        }
+        break;
+
+      case 'clear_components':
+        clearComponents();
+        break;
+
+      default:
+        print("Unknown JSON action: $action");
+    }
   }
 
   void updateTitle(String newTitle) {
@@ -39,6 +238,30 @@ class UiStateNotifier extends ChangeNotifier {
       newList[index].text = newText;
       _uiState = _uiState.copyWith(componentProperties: newList);
       notifyListeners();
+    } else {
+      print("Invalid index ($index) for updateComponentText. Maximum: ${_uiState.componentProperties.length -1}");
+    }
+  }
+
+  void updateComponentColor(int index, Color newColor) {
+    if (index >= 0 && index < _uiState.componentProperties.length) {
+      final newList = List<ComponentProperty>.from(_uiState.componentProperties);
+      newList[index].color = newColor;
+
+      _uiState = _uiState.copyWith(componentProperties: newList);
+      notifyListeners();
+    } else {
+      print("Invalid index ($index) for updateComponentColor.");
+    }
+  }
+
+  void removeComponentAtIndex(int index) {
+    if (index >= 0 && index < _uiState.componentProperties.length) {
+      final newList = List<ComponentProperty>.from(_uiState.componentProperties)..removeAt(index);
+      _uiState = _uiState.copyWith(componentProperties: newList);
+      notifyListeners();
+    } else {
+      print("Invalid index ($index) for removeComponentAtIndex. Maximum: ${_uiState.componentProperties.length -1}");
     }
   }
 
@@ -50,55 +273,25 @@ class UiStateNotifier extends ChangeNotifier {
     }
   }
 
+  void clearComponents() {
+    _uiState = _uiState.copyWith(componentProperties: []);
+    notifyListeners();
+  }
+
   void updateInputText(String text) {
     
   }
 
   void resetUi() {
-    _uiState = _initialState.copyWith(); // Restaura ao estado inicial salvo
+    _uiState = _initialState.copyWith(
+      isLoading: false,
+      errorMessage: null,
+    ); //Restores to the initial saved state
     notifyListeners();
   }
 
-  void processPrompt(String prompt) {
-    final sanitizedPrompt = prompt.trim().toLowerCase();
-
-    if (sanitizedPrompt.startsWith('change title to ')) {
-      final newTitle = sanitizedPrompt.substring('change title to '.length).trim();
-      if (newTitle.isNotEmpty) {
-        updateTitle(newTitle);
-      }
-    } else if (sanitizedPrompt.startsWith('change background color to ')) {
-      final colorName = sanitizedPrompt.substring('change background color to '.length).trim();
-      Color? newColor;
-      switch (colorName) {
-        case 'red':
-          newColor = Colors.red;
-          break;
-        case 'green':
-          newColor = Colors.green;
-          break;
-        case 'blue':
-          newColor = Colors.blue;
-          break;
-        case 'yellow':
-          newColor = Colors.yellow;
-          break;
-        case 'orange':
-          newColor = Colors.orange;
-          break;
-      }
-      if (newColor != null) {
-        updateBackgroundColor(newColor);
-      }
-    } else if (sanitizedPrompt.startsWith('add component')) {
-      final componentText = sanitizedPrompt.substring('add component'.length).trim();
-      addComponent(ComponentProperty(type: 'text', text: componentText.isNotEmpty ? componentText : 'New Component'));
-    } else if (sanitizedPrompt.startsWith('remove last component')) {
-      removeLastComponent();
-    } else if (sanitizedPrompt.startsWith('reset ui')) {
-      resetUi();
-    } else {
-      print('comando não reconhecido: $sanitizedPrompt');
-    }
+  void clearErrorMessage() {
+    _uiState = _uiState.copyWith(errorMessage: null);
+    notifyListeners();
   }
 }

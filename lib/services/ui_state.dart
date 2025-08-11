@@ -4,12 +4,16 @@ class UiState {
   Color backgroundColor;
   List<ComponentProperty> componentProperties;
   String inputBarText;
+  String? errorMessage;
+  bool isLoading;
 
   UiState({
     required this.title,
     required this.backgroundColor,
     this.componentProperties = const [],
     this.inputBarText = '',
+    this.isLoading = false,
+    this.errorMessage,
   });
 
   // Método para criar uma cópia com valores atualizados (imutabilidade é uma boa prática)
@@ -18,6 +22,9 @@ class UiState {
     Color? backgroundColor,
     List<ComponentProperty>? componentProperties,
     String? inputBarText,
+    String? errorMessage,
+    bool? isLoading,
+    bool  clearErrorMessage = false,
   }) {
     return UiState(
       title: title ?? this.title,
