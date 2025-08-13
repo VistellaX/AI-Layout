@@ -60,6 +60,7 @@ YOUR RESPONSE SHOULD BE JUST THE JSON ARRAY. DO NOT wrap the JSON in Markdown co
 DO NOT include any explanatory text before or after the JSON array. The response must begin directly with `[` and end with `]`.
 """;
   Future<String> getJsonPayloadFromPrompt(String userPrompt) async {
+    print("GEMINI_SERVICE: User prompt received: \"$userPrompt\"");
     final Uri uri = Uri.parse(apiUrl!);
 
     //List<Map<String, dynamic>> localMsgs = [...msgs];
@@ -77,6 +78,14 @@ DO NOT include any explanatory text before or after the JSON array. The response
       // ... generationConfig e safetySettings ...
     };
     try {
+      print("GEMINI_SERVICE: Sending request to: $uri");
+      print("GEMINI_SERVICE: Request body: ${jsonEncode(requestBody)}"); // Cuidado se tiver dados sensíveis
+    } catch (e) {
+      print("GEMINI_SERVICE: Error encoding request body: $e");
+      // Decide se quer relançar ou continuar (provavelmente relançar)
+      throw Exception("Failed to encode request body for Gemini: $e");
+    }
+    try {
       final response = await http.post(
         uri,
         headers: {
@@ -84,32 +93,66 @@ DO NOT include any explanatory text before or after the JSON array. The response
         },
         body: jsonEncode(requestBody),
       );
+      print("GEMINI_SERVICE: Raw Status Code from Gemini: ${response.statusCode}");
+      print("GEMINI_SERVICE: Raw Response Headers from Gemini: ${response.headers}");
+      print("GEMINI_SERVICE: Raw Response Body from Gemini: ${response.body}");
 
       if (response.statusCode == 200) {
-        final responseBody = jsonDecode(response.body);
-        if (responseBody['candidates'] != null &&
-            responseBody['candidates'] is List &&
-            (responseBody['candidates'] as List).isNotEmpty &&
-            responseBody['candidates'][0]['content'] != null &&
-            responseBody['candidates'][0]['content']['parts'] != null &&
-            responseBody['candidates'][0]['content']['parts'] is List &&
-            (responseBody['candidates'][0]['content']['parts'] as List).isNotEmpty &&
-            responseBody['candidates'][0]['content']['parts'][0]['text'] != null) {
+        final dynamic responseBodyDecoded;
+        try {
+          responseBodyDecoded = jsonDecode(response.body);
+          print("GEMINI_SERVICE: Successfully decoded raw response body.");
+        } catch (e, s) {
+          print("GEMINI_SERVICE: ERROR - Failed to decode raw response body from Gemini!");
+          print("GEMINI_SERVICE: Raw body was: ${response.body}");
+          print("GEMINI_SERVICE: Decode error: $e");
+          print("GEMINI_SERVICE: Decode stack trace: $s");
+          // Este é um ponto crítico. Se o corpo principal não é JSON, nada mais vai funcionar.
+          throw Exception("Gemini main response body is not valid JSON. Body: ${response.body}");
+        }
+        if (responseBodyDecoded['candidates'] != null &&
+            responseBodyDecoded['candidates'] is List &&
+            (responseBodyDecoded['candidates'] as List).isNotEmpty &&
+            responseBodyDecoded['candidates'][0]['content'] != null &&
+            responseBodyDecoded['candidates'][0]['content']['parts'] != null &&
+            responseBodyDecoded['candidates'][0]['content']['parts'] is List &&
+            (responseBodyDecoded['candidates'][0]['content']['parts'] as List).isNotEmpty &&
+            responseBodyDecoded['candidates'][0]['content']['parts'][0]['text'] != null) {
 
-          String generatedJson = responseBody['candidates'][0]['content']['parts'][0]['text'];
+          String generatedJson = responseBodyDecoded['candidates'][0]['content']['parts'][0]['text'];
           print('--- Gemini Raw Response Text ---');
           print(generatedJson);
           print('--------------------------------');
 
           String cleanedJson = generatedJson.trim();
-          print('--- Cleaned JSON Attempt ---');
+          const String markdownFenceJsonWithNewline = "`json\n";
+          const String markdownFenceJson = "```json";
+          const String markdownFenceSimpleWithNewline = "`\n";
+          const String markdownFenceSimple = "```";
+          const String markdownEndFenceWithNewline = "\n`";
+          const String markdownEndFence = "```";
+          // Check and remove Markdown fences if present
+          if (cleanedJson.startsWith(markdownFenceJsonWithNewline) && cleanedJson.endsWith(markdownEndFenceWithNewline)) {
+            cleanedJson = cleanedJson.substring(markdownFenceJsonWithNewline.length, cleanedJson.length - markdownEndFenceWithNewline.length).trim();
+          } else if (cleanedJson.startsWith(markdownFenceJson) && cleanedJson.endsWith(markdownEndFence)) {
+            cleanedJson = cleanedJson.substring(markdownFenceJson.length, cleanedJson.length - markdownEndFence.length).trim();
+          } else if (cleanedJson.startsWith(markdownFenceSimpleWithNewline) && cleanedJson.endsWith(markdownEndFenceWithNewline)) {
+            cleanedJson = cleanedJson.substring(markdownFenceSimpleWithNewline.length, cleanedJson.length - markdownEndFenceWithNewline.length).trim();
+          } else if (cleanedJson.startsWith(markdownFenceSimple) && cleanedJson.endsWith(markdownEndFence)) {
+            cleanedJson = cleanedJson.substring(markdownFenceSimple.length, cleanedJson.length - markdownEndFence.length).trim();
+          }
+          print('---  Cleaned JSON Attempt (after Markdown removal and trim)  ---');
           print(cleanedJson);
           print('----------------------------');
           try {
             jsonDecode(cleanedJson); // Apenas para validar o formato JSON
+            print("GEMINI_SERVICE: Successfully validated cleanedJson as JSON. Returning it.");
             return cleanedJson;
-          } catch (e) {
-            print('Gemini returned text that is not valid JSON even after cleaning: $cleanedJson');
+          } catch (e, s) { // Este é o catch que lança a exceção que você está vendo
+            print("GEMINI_SERVICE: ERROR - Cleaned JSON ('generatedJson' from parts.text) is NOT valid JSON even after trimming.");
+            print("GEMINI_SERVICE: Cleaned JSON content was: $cleanedJson");
+            print("GEMINI_SERVICE: Validation decode error: $e");
+            print("GEMINI_SERVICE: Validation decode stack trace: $s");
             // SE ESTA EXCEÇÃO FOR LANÇADA...
             throw Exception('Gemini response is not valid JSON even after sanitization. Contents: $cleanedJson');
           }
@@ -118,13 +161,26 @@ DO NOT include any explanatory text before or after the JSON array. The response
           throw Exception('Unexpected response from Gemini API.');
         }
       } else {
-        print('Gemini API Error: ${response.statusCode}');
-        print('Error Body: ${response.body}');
-        throw Exception('Gemini API Error: ${response.statusCode}');
+        print('GEMINI_SERVICE: ERROR - Gemini API HTTP Error.');
+        print('GEMINI_SERVICE: Status Code: ${response.statusCode}');
+        print('GEMINI_SERVICE: Error Body: ${response.body}');
+        throw Exception('Gemini API Error: ${response.statusCode}, Body: ${response.body}');
       }
-    } catch (e) {
-      print('Error calling Gemini API: $e');
-      throw Exception('Error connecting to Gemini service: $e');
+    } catch (e, s) { // Catch principal do método
+      print('GEMINI_SERVICE: ERROR - Exception during Gemini API call or processing.');
+      print('GEMINI_SERVICE: Error Type: ${e.runtimeType}');
+      print('GEMINI_SERVICE: Error: $e');
+      print('GEMINI_SERVICE: StackTrace: $s');
+      // Relança a exceção para que o chamador (UiStateNotifier) possa lidar com ela.
+      // É importante não "engolir" a exceção aqui, a menos que você a esteja tratando e retornando um valor padrão.
+      // Se a exceção já for a que você quer, ou uma que encapsula bem a informação:
+      if (e.toString().contains("Gemini API Error") ||
+          e.toString().contains("Gemini response is not valid JSON") ||
+          e.toString().contains("Unexpected response structure")) {
+        throw e; // Relança a exceção específica já formatada
+      }
+      // Caso contrário, encapsule-a para dar contexto
+      throw Exception('Error connecting to Gemini service or processing its response: $e');
     }
   }
 }

@@ -64,6 +64,7 @@ class UiStateNotifier extends ChangeNotifier {
   final GeminiService _geminiService = GeminiService();
 
   UiStateNotifier() {
+    print("UiStateNotifier CONSTRUCTOR for instance with hashCode: ${this.hashCode}");
     _initialState = _uiState.copyWith(isLoading: false, errorMessage: null); // Salva o estado inicial
   }
 
@@ -83,20 +84,21 @@ class UiStateNotifier extends ChangeNotifier {
 
       if (jsonStringFromGemini.isNotEmpty) {
         if (jsonStringFromGemini == "[]") {
-           _uiState = _uiState.copyWith(isLoading: false, errorMessage: "I don't understand what you mean. Try another way.");
+          print("UI_STATE_NOTIFIER (INSTANCE ${this.hashCode}): Gemini returned []. Setting error message.");
+          _uiState = _uiState.copyWith(isLoading: false, errorMessage: "I don't understand what you mean. Try another way.");
            notifyListeners();
-           return;
+          print("UI_STATE_NOTIFIER (INSTANCE ${this.hashCode}): Error message set and notifyListeners called. Error: ${_uiState.errorMessage}");
+          return;
         }
         processJsonPayload(jsonStringFromGemini);
+        _uiState = _uiState.copyWith(isLoading: false, errorMessage: null, clearErrorMessage: true); // Limpa explicitamente o erro
+        notifyListeners();
       } else {
         // Caso o GeminiService retorne uma string vazia por algum motivo inesperado
         _uiState = _uiState.copyWith(isLoading: false, errorMessage: "Received empty payload from assistant.");
         notifyListeners();
         return;
       }
-      _uiState = _uiState.copyWith(isLoading: false); // Carregamento concluído com sucesso
-      // notifyListeners(); // processJsonPayload ou seus métodos internos já chamam notifyListeners
-
     } catch (e) {
       print("Error processing prompt with Gemini: $e");
       _uiState = _uiState.copyWith(isLoading: false, errorMessage: "Error communicating with assistant: ${e.toString()}");
@@ -121,22 +123,47 @@ class UiStateNotifier extends ChangeNotifier {
         }
         for (var instruction in decodedJson) {
           if (instruction is Map<String, dynamic>) {
-            _applyInstruction(instruction);
+            try { // <--- Início do try-catch para _applyInstruction
+              print("PROCESS_JSON_PAYLOAD: Applying instruction: $instruction");
+              _applyInstruction(instruction);
+            } catch (e, s) { // <--- Catch para _applyInstruction
+              print("!!!!!!!! EXCEPTION INSIDE _applyInstruction (within list) !!!!!!!");
+              print("Failed instruction: $instruction");
+              print("Error: $e");
+              print("Stack trace: $s");
+              // Decida se quer definir um erro geral aqui ou apenas logar e continuar
+              // Ex: _uiState = _uiState.copyWith(errorMessage: "Error applying one of the instructions: $e");
+              // notifyListeners();
+              // Se você definir um erro aqui e houver múltiplas instruções, o último erro prevalecerá.
+            }
           } else {
-            print("invalid json list instruction: $instruction");
+            print("PROCESS_JSON_PAYLOAD: Invalid instruction format in list: $instruction");
+            // Você pode querer definir um erro aqui também
           }
         }
       } else if (decodedJson is Map<String, dynamic>) {
-        _applyInstruction(decodedJson);
+        try { // <--- Início do try-catch para _applyInstruction (caso seja um objeto único)
+          print("PROCESS_JSON_PAYLOAD: Applying single instruction: $decodedJson");
+          _applyInstruction(decodedJson);
+        } catch (e, s) { // <--- Catch para _applyInstruction
+          print("!!!!!!!! EXCEPTION INSIDE _applyInstruction (single object) !!!!!!!");
+          print("Failed instruction: $decodedJson");
+          print("Error: $e");
+          print("Stack trace: $s");
+          // Defina o erro aqui, pois é uma única instrução
+          _uiState = _uiState.copyWith(errorMessage: "Error applying instruction: ${e.toString()}");
+          throw e; // Relança a exceção para ser pega pelo catch abaixo.
+        }
       } else {
-        _uiState = _uiState.copyWith(errorMessage: "Unexpected response format from wizard.");
+        print("PROCESS_JSON_PAYLOAD: Unexpected JSON format. Neither List nor Map<String, dynamic>.");
+        _uiState = _uiState.copyWith(errorMessage: "Unexpected response format from assistant.");
+        // notifyListeners(); // Deixe processPrompt lidar com a notificação
       }
     } catch (e, s) {
       print("Error decoding or processing JSON: $e");
       print("Stack trace: $s");
       _uiState = _uiState.copyWith(errorMessage: "Error processing wizard response.");
     }
-    // notifyListeners();
 }
 
   void _applyInstruction(Map<String, dynamic> instruction) {
@@ -283,10 +310,7 @@ class UiStateNotifier extends ChangeNotifier {
   }
 
   void resetUi() {
-    _uiState = _initialState.copyWith(
-      isLoading: false,
-      errorMessage: null,
-    ); //Restores to the initial saved state
+    _uiState = _initialState.copyWith(isLoading: false, errorMessage: null);
     notifyListeners();
   }
 

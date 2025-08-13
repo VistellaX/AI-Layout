@@ -31,6 +31,9 @@ class UiState {
       backgroundColor: backgroundColor ?? this.backgroundColor,
       componentProperties: componentProperties ?? this.componentProperties,
       inputBarText: inputBarText ?? this.inputBarText,
+      errorMessage: clearErrorMessage
+          ? null // Se clearErrorMessage for true, defina como null
+          : (errorMessage ?? this.errorMessage),
     );
   }
 }

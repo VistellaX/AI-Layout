@@ -16,12 +16,7 @@ class _MainScreenState extends State<MainScreen> {
   @override
   void initState() {
     super.initState();
-    _promptController.addListener(() {
-      final uiStateNotifier = context.read<UiStateNotifier>();
-      if (_promptController.text.isNotEmpty && uiStateNotifier.uiState.errorMessage != null) {
-        uiStateNotifier.clearErrorMessage();
-      }
-    });
+    //final uiStateNotifier = context.read<UiStateNotifier>();
   }
 
   @override
@@ -47,9 +42,9 @@ class _MainScreenState extends State<MainScreen> {
     // The formula for perceived luminance is Y = 0.299*R + 0.587*G + 0.114*B
     // Colors with luminance < 0.5 are generally considered dark.
     // Normalizes RGB values to the range 0-1.
-    double luminance = (0.299 * backgroundColor.r / 255) +
-        (0.587 * backgroundColor.g / 255) +
-        (0.114 * backgroundColor.b / 255);
+    double luminance = (0.299 * backgroundColor.red +
+        0.587 * backgroundColor.green  +
+        0.114 * backgroundColor.blue) / 255;
 
     return luminance > 0.5 ? Colors.black : Colors.white;
   }
@@ -57,29 +52,45 @@ class _MainScreenState extends State<MainScreen> {
   @override
   Widget build(BuildContext context) {
     final uiStateNotifier = context.watch<UiStateNotifier>();
-    final uiState = uiStateNotifier.uiState;
-    final Color textFieldTextColor = getTextColorForBackground(uiState.backgroundColor);
-
-    if (uiState.errorMessage != null && !uiState.isLoading) { // Não mostrar erro se estiver carregando novo
+    print("MAIN_SCREEN BUILD using UiStateNotifier instance with hashCode: ${uiStateNotifier.hashCode}");
+    final UiState currentUiState = uiStateNotifier.uiState;
+    final Color textFieldTextColor = getTextColorForBackground(currentUiState.backgroundColor);
+    print("MAIN_SCREEN BUILD: isLoading: ${currentUiState.isLoading}, errorMessage: ${currentUiState.errorMessage}");
+    if (currentUiState.errorMessage != null && !currentUiState.isLoading) { // Não mostrar erro se estiver carregando novo
+      print("MAIN_SCREEN: Condition MET for SnackBar. Error: ${currentUiState.errorMessage}");
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        ScaffoldMessenger.of(context).removeCurrentSnackBar();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(uiState.errorMessage!),
-            backgroundColor: Colors.redAccent,
-          ),
-        );
-        context.read<UiStateNotifier>().clearErrorMessage();
+        final latestUiState = context.read<UiStateNotifier>().uiState; // Use .read aqui dentro do callback
+        print("MAIN_SCREEN: addPostFrameCallback EXECUTING. Error from latestUiState: ${latestUiState.errorMessage}, context valid: ${context.mounted}");
+        if (context.mounted && latestUiState.errorMessage != null) {
+          ScaffoldMessenger.of(context).removeCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(latestUiState.errorMessage!),
+              backgroundColor: Colors.redAccent,
+              duration: Duration(seconds: 4),
+            ),
+          );
+          print("MAIN_SCREEN: showSnackBar CALLED with error: ${latestUiState.errorMessage}.");
+        } else {
+          print("MAIN_SCREEN: Context NOT MOUNTED or errorMessage became null in addPostFrameCallback. Mounted: ${context.mounted}, Error: ${latestUiState.errorMessage}");
+        }
+        //context.read<UiStateNotifier>().clearErrorMessage();
       });
+    } else {
+      if (currentUiState.errorMessage != null) { // Log se o erro existe mas isLoading é true
+        print("MAIN_SCREEN: Condition NOT MET for SnackBar because isLoading is ${currentUiState.isLoading}. Error: ${currentUiState.errorMessage}");
+      } else if (!currentUiState.isLoading){
+        print("MAIN_SCREEN: Condition NOT MET for SnackBar because errorMessage is null. isLoading: ${currentUiState.isLoading}");
+      }
     }
 
     return Scaffold(
       appBar: AppBar(
-        title: Text(uiState.title),
+        title: Text(currentUiState.title),
         actions: [
           IconButton(
             icon: Icon(Icons.refresh),
-            onPressed: uiState.isLoading ? null : () {
+            onPressed: currentUiState.isLoading ? null : () {
               // Use context.read to call methods without rebuilding when the method is called
               context.read<UiStateNotifier>().resetUi();
               _promptController.clear();
@@ -87,7 +98,7 @@ class _MainScreenState extends State<MainScreen> {
           ),
         ],
       ),
-      backgroundColor: uiState.backgroundColor,
+      backgroundColor: currentUiState.backgroundColor,
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
@@ -95,9 +106,9 @@ class _MainScreenState extends State<MainScreen> {
             // List of dynamic components
             Expanded(
               child: ListView.builder(
-                itemCount: uiState.componentProperties.length,
+                itemCount: currentUiState.componentProperties.length,
                 itemBuilder: (context, index) {
-                  final component = uiState.componentProperties[index];
+                  final component = currentUiState.componentProperties[index];
                   if (component.type == 'text') {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8.0),
@@ -117,7 +128,7 @@ class _MainScreenState extends State<MainScreen> {
                 },
               ),
             ),
-            if (uiState.isLoading)
+            if (currentUiState.isLoading)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 8.0),
                 child: Center(child: CircularProgressIndicator(
@@ -135,31 +146,31 @@ class _MainScreenState extends State<MainScreen> {
                       style: TextStyle(color: textFieldTextColor),
                       decoration: InputDecoration(
                         hintText: "Write command here...",
-                        hintStyle: TextStyle(color: textFieldTextColor.withValues()), // Um pouco mais sutil
+                        hintStyle: TextStyle(color: textFieldTextColor.withOpacity(0.7)), // Um pouco mais sutil
                         border: OutlineInputBorder(
-                          borderSide: BorderSide(color: textFieldTextColor.withValues()),
+                          borderSide: BorderSide(color: textFieldTextColor.withOpacity(0.7)),
                         ),
                         enabledBorder: OutlineInputBorder( // Edge when enabled
-                          borderSide: BorderSide(color: textFieldTextColor.withValues()),
+                          borderSide: BorderSide(color: textFieldTextColor.withOpacity(0.7)),
                         ),
                         focusedBorder: OutlineInputBorder( // Edge when focused
                           borderSide: BorderSide(color: textFieldTextColor, width: 2.0),
                         ),
                       ),
-                      enabled: !uiState.isLoading,
-                      onSubmitted: uiState.isLoading ? null : (value) { // Allows you to send with Enter
+                      enabled: !currentUiState.isLoading,
+                      onSubmitted: currentUiState.isLoading ? null : (value) {
                         _submitPrompt();
-                      },
+                      }
                     ),
                   ),
                   SizedBox(width: 8),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
                       backgroundColor: textFieldTextColor, // Button with text color
-                      foregroundColor: uiState.backgroundColor, // Button text with background color
+                      foregroundColor: currentUiState.backgroundColor, // Button text with background color
                     ).copyWith(),
-                    child: uiState.isLoading ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(uiState.backgroundColor))) : Text('Send'),
-                    onPressed: uiState.isLoading ? null : _submitPrompt,
+                    child: currentUiState.isLoading ? SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(currentUiState.backgroundColor))) : Text('Send'),
+                    onPressed: currentUiState.isLoading ? null : _submitPrompt,
                   ),
                 ],
               ),

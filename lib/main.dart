@@ -9,7 +9,12 @@ void main() async {
   await dotenv.load(fileName: '.env');
   runApp(
       ChangeNotifierProvider(
-        create: (context) => UiStateNotifier(),
+        create: (context) {
+          print("PROVIDER: Creating UiStateNotifier instance."); // Você já pode ter este
+          final notifier = UiStateNotifier();
+          print("PROVIDER: UiStateNotifier INSTANCE CREATED with hashCode: ${notifier.hashCode}");
+          return notifier;
+        },
         child: MyApp(),
       )
   );
