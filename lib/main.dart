@@ -10,7 +10,7 @@ void main() async {
   runApp(
       ChangeNotifierProvider(
         create: (context) {
-          print("PROVIDER: Creating UiStateNotifier instance."); // Você já pode ter este
+          print("PROVIDER: Creating UiStateNotifier instance.");
           final notifier = UiStateNotifier();
           print("PROVIDER: UiStateNotifier INSTANCE CREATED with hashCode: ${notifier.hashCode}");
           return notifier;
